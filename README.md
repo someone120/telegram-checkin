@@ -2,6 +2,8 @@
 
 利用 GitHub Actions 定时以个人 Telegram 账号（UserBot）身份发送签到消息。
 
+支持**多个目标分别定时发送**。
+
 ## 快速开始
 
 ### 1. 获取 Telegram API 凭据
@@ -26,45 +28,146 @@ python generate_session.py
 
 在仓库 **Settings → Secrets and variables → Actions** 中添加以下 Secrets：
 
-| Secret 名称 | 说明 | 示例 |
+| Secret 名称 | 说明 | 必填 |
 |---|---|---|
-| `API_ID` | Telegram API ID | `12345678` |
-| `API_HASH` | Telegram API Hash | `abcdef1234567890...` |
-| `SESSION_STRING` | Telethon Session String | `1BVtsO...` |
-| `TARGET` | 签到目标（用户名或 ID） | `@some_bot` 或 `-1001234567890` |
-| `MESSAGE` | 签到消息内容 | `/checkin` |
+| `API_ID` | Telegram API ID | 是 |
+| `API_HASH` | Telegram API Hash | 是 |
+| `SESSION_STRING` | Telethon Session String | 是 |
+| `TARGETS_CONFIG` | 多目标配置（JSON 数组，见下方说明） | 是（二选一） |
+| `TARGET` | 单目标签到（向后兼容） | 是（二选一） |
+| `MESSAGE` | 单目标签到消息（配合 TARGET 使用） | 否 |
+| `WAIT_RESPONSE` | 等待回复秒数（默认 10） | 否 |
 
-### 4. 触发签到
+### 4. 配置多目标签到（TARGETS_CONFIG）
 
-- **自动执行**：默认每天北京时间 9:00 自动运行
-- **手动触发**：在仓库 Actions 页面点击 **Run workflow**
+`TARGETS_CONFIG` 是一个 JSON 数组，每个元素代表一个签到目标：
 
-## 自定义配置
+```json
+[
+  {
+    "target": "@bot1",
+    "message": "/checkin",
+    "schedule": "01:00"
+  },
+  {
+    "target": "-1001234567890",
+    "message": "/sign",
+    "schedule": "06:00"
+  },
+  {
+    "target": "@another_bot",
+    "message": "/checkin",
+    "schedule": "14:00"
+  }
+]
+```
 
-### 修改定时计划
+| 字段 | 说明 | 必填 | 默认值 |
+|---|---|---|---|
+| `target` | 签到目标（`@username` 或数字 ID） | 是 | - |
+| `message` | 签到消息内容 | 否 | `/checkin` |
+| `schedule` | 发送时间（UTC，格式 `HH:MM`） | 否 | 不限时间，每次触发都发送 |
 
-编辑 `.github/workflows/checkin.yml` 中的 cron 表达式：
+> `schedule` 使用 **UTC 时间**，北京时间需要 **减 8 小时**。例如北京时间 09:00 对应 UTC `01:00`，北京时间 22:00 对应 UTC `14:00`。
+
+> 没有设置 `schedule` 的目标在每次 cron 触发时都会发送。
+
+### 5. 配置 workflow cron 时间
+
+编辑 `.github/workflows/checkin.yml` 中的 `schedule`，确保覆盖所有目标的发送时间：
 
 ```yaml
 schedule:
-  - cron: '0 1 * * *'  # UTC 时间，北京时间 = UTC + 8
+  - cron: '0 1 * * *'   # UTC 01:00 → 覆盖 schedule 为 01:00 的目标
+  - cron: '0 6 * * *'   # UTC 06:00 → 覆盖 schedule 为 06:00 的目标
+  - cron: '0 14 * * *'  # UTC 14:00 → 覆盖 schedule 为 14:00 的目标
 ```
 
-常用示例：
-- `0 1 * * *` → 每天北京时间 9:00
-- `0 0 * * *` → 每天北京时间 8:00
-- `0 2 * * 1-5` → 工作日北京时间 10:00
+脚本在每次被 cron 触发时，会自动判断当前 UTC 时间，只向匹配的目标发送消息（±5 分钟容差）。
 
-### 等待回复时长
+### 6. 触发签到
 
-可添加 `WAIT_RESPONSE` Secret（单位：秒，默认 10）来控制等待机器人回复的时间。
+- **自动执行**：按 cron 定时自动运行，根据每个目标的 `schedule` 匹配发送
+- **手动触发**：在仓库 Actions 页面点击 **Run workflow**
+  - 勾选 **"向所有目标发送"** 可一次性向所有目标发送（忽略定时设置）
+  - 填写 **"仅向指定目标发送"** 可只向某一个目标发送
+
+## 使用示例
+
+### 示例 1：两个群不同时间签到
+
+```json
+[
+  {"target": "@checkin_bot", "message": "/checkin", "schedule": "01:00"},
+  {"target": "-1001999888777", "message": "/sign", "schedule": "14:00"}
+]
+```
+
+对应 workflow 配置：
+
+```yaml
+schedule:
+  - cron: '0 1 * * *'
+  - cron: '0 14 * * *'
+```
+
+效果：
+- 每天北京时间 09:00 向 `@checkin_bot` 发送 `/checkin`
+- 每天北京时间 22:00 向群 `-1001999888777` 发送 `/sign`
+
+### 示例 2：多个群同一时间签到
+
+```json
+[
+  {"target": "@bot_a", "message": "/checkin", "schedule": "01:00"},
+  {"target": "@bot_b", "message": "/checkin", "schedule": "01:00"},
+  {"target": "@bot_c", "message": "/sign", "schedule": "01:00"}
+]
+```
+
+对应 workflow 只需一个 cron：
+
+```yaml
+schedule:
+  - cron: '0 1 * * *'
+```
+
+效果：每天北京时间 09:00 同时向三个目标发送签到消息。
+
+### 示例 3：向后兼容（单目标）
+
+如果不想使用新的 JSON 配置，仍然可以使用原来的方式：
+
+| Secret | 值 |
+|---|---|
+| `TARGET` | `@some_bot` |
+| `MESSAGE` | `/checkin` |
+
+## 本地调试
+
+```bash
+# 设置环境变量
+export API_ID=12345678
+export API_HASH=abcdef1234567890
+export SESSION_STRING=1BVtsO...
+export TARGETS_CONFIG='[{"target":"@bot1","message":"/checkin","schedule":"01:00"}]'
+
+# 向所有目标发送（忽略定时）
+python checkin.py --all
+
+# 仅向指定目标发送
+python checkin.py --target @bot1
+
+# 按定时规则自动匹配（正常 cron 运行模式）
+python checkin.py
+```
 
 ## 项目结构
 
 ```
 ├── .github/workflows/
-│   └── checkin.yml        # GitHub Actions 工作流
-├── checkin.py             # 签到脚本
+│   └── checkin.yml        # GitHub Actions 工作流（多 cron 定时）
+├── checkin.py             # 签到脚本（支持多目标 + 定时）
 ├── generate_session.py    # Session String 生成器（本地使用）
 ├── requirements.txt       # Python 依赖
 └── README.md
@@ -73,5 +176,7 @@ schedule:
 ## 注意事项
 
 - Session String 包含完整的账号授权信息，**绝对不要**提交到代码仓库
-- GitHub Actions 的 cron schedule 可能有几分钟的延迟，这是正常现象
+- GitHub Actions 的 cron schedule 可能有几分钟的延迟，脚本设置了 ±5 分钟容差
 - 如果 Session 失效，需要重新运行 `generate_session.py` 并更新 Secret
+- `TARGETS_CONFIG` 中的 `schedule` 时间必须和 workflow 的 cron 时间对应，否则不会触发
+- 手动触发时默认向所有目标发送，无需关心 schedule 设置

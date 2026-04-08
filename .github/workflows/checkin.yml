@@ -2,9 +2,23 @@ name: Telegram 自动签到
 
 on:
   schedule:
-    # 每天 UTC 1:00 (北京时间 9:00) 执行
-    - cron: '0 1 * * *'
-  workflow_dispatch:  # 支持手动触发
+    # 可添加多个 cron 时间，覆盖所有目标的定时需求
+    # 脚本会根据 TARGETS_CONFIG 中每个目标的 schedule 字段自动匹配
+    - cron: '0 1 * * *'   # UTC 01:00 (北京时间 09:00)
+    - cron: '0 6 * * *'   # UTC 06:00 (北京时间 14:00)
+    - cron: '0 14 * * *'  # UTC 14:00 (北京时间 22:00)
+  workflow_dispatch:
+    inputs:
+      send_all:
+        description: '向所有目标发送（忽略定时设置）'
+        required: false
+        type: boolean
+        default: true
+      target:
+        description: '仅向指定目标发送（留空则按规则处理）'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   checkin:
@@ -27,6 +41,18 @@ jobs:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
           SESSION_STRING: ${{ secrets.SESSION_STRING }}
+          TARGETS_CONFIG: ${{ secrets.TARGETS_CONFIG }}
+          # 向后兼容旧的单目标配置
           TARGET: ${{ secrets.TARGET }}
           MESSAGE: ${{ secrets.MESSAGE }}
-        run: python checkin.py
+          WAIT_RESPONSE: ${{ secrets.WAIT_RESPONSE }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ inputs.send_all }}" = "true" ] && [ -z "${{ inputs.target }}" ]; then
+              ARGS="--all"
+            elif [ -n "${{ inputs.target }}" ]; then
+              ARGS="--target ${{ inputs.target }}"
+            fi
+          fi
+          python checkin.py $ARGS
