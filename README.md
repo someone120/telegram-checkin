@@ -67,12 +67,33 @@ python generate_session.py
 | `target` | 签到目标（`@username` 或数字 ID） | 是 | - |
 | `message` | 签到消息内容 | 否 | `/checkin` |
 | `schedule` | 发送时间（UTC，格式 `HH:MM`） | 否 | 不限时间，每次触发都发送 |
+| `topic_id` | 话题 ID（用于支持话题的超级群组） | 否 | None |
 
 > `schedule` 使用 **UTC 时间**，北京时间需要 **减 8 小时**。例如北京时间 09:00 对应 UTC `01:00`，北京时间 22:00 对应 UTC `14:00`。
 
 > 没有设置 `schedule` 的目标在每次 cron 触发时都会发送。
 
-### 5. 配置 workflow cron 时间
+### 5. 配置话题功能（可选）
+
+如果您的目标是支持话题功能的超级群组，可以在配置中添加 `topic_id` 字段来指定消息发送到特定话题：
+
+```json
+[
+  {
+    "target": "-1001234567890",
+    "message": "/sign",
+    "schedule": "06:00",
+    "topic_id": 1234
+  }
+]
+```
+
+其中 `topic_id` 是您要发送消息到的话题 ID。您可以在 Telegram 客户端中通过以下方式获取话题 ID：
+1. 打开支持话题的群组
+2. 点击特定话题
+3. 查看 URL 中的 ID 参数（在 Telegram Web 中可见）
+
+### 6. 配置 workflow cron 时间
 
 编辑 `.github/workflows/checkin.yml` 中的 `schedule`，确保覆盖所有目标的发送时间：
 
@@ -114,6 +135,22 @@ schedule:
 效果：
 - 每天北京时间 09:00 向 `@checkin_bot` 发送 `/checkin`
 - 每天北京时间 22:00 向群 `-1001999888777` 发送 `/sign`
+
+### 示例 4：向支持话题的群组发送消息
+
+```json
+[
+  {
+    "target": "-1001234567890",
+    "message": "/checkin",
+    "schedule": "01:00",
+    "topic_id": 1234
+  }
+]
+```
+
+效果：
+- 每天北京时间 09:00 向群组 `-1001234567890` 的话题 `1234` 发送 `/checkin` 消息
 
 ### 示例 2：多个群同一时间签到
 

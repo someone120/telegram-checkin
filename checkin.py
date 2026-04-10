@@ -50,6 +50,7 @@ def parse_targets():
                     "target": t["target"],
                     "message": t.get("message", "/checkin"),
                     "schedule": t.get("schedule", ""),
+                    "topic_id": t.get("topic_id", None),
                 })
             return parsed
         except json.JSONDecodeError as e:
@@ -114,11 +115,17 @@ async def send_checkin(client, me, target_config):
     """向单个目标发送签到消息并捕获回复"""
     target_str = target_config["target"]
     message = target_config["message"]
+    topic_id = target_config.get("topic_id")
     target = parse_target_id(target_str)
 
     try:
-        await client.send_message(target, message)
-        print(f"  ✅ 已向 {target_str} 发送消息: {message}")
+        # 如果指定了话题 ID，则发送到特定话题
+        if topic_id:
+            await client.send_message(target, message, reply_to=topic_id)
+            print(f"  ✅ 已向 {target_str} 的话题 {topic_id} 发送消息: {message}")
+        else:
+            await client.send_message(target, message)
+            print(f"  ✅ 已向 {target_str} 发送消息: {message}")
 
         if WAIT_RESPONSE > 0:
             print(f"  ⏳ 等待 {WAIT_RESPONSE} 秒以捕获回复...")
@@ -126,7 +133,12 @@ async def send_checkin(client, me, target_config):
 
             messages = await client.get_messages(target, limit=3)
             for msg in messages:
-                if msg.sender_id != me.id:
+                # 如果指定了话题 ID，只获取该话题的回复
+                if topic_id and hasattr(msg, 'reply_to') and msg.reply_to:
+                    if getattr(msg.reply_to, 'reply_to_msg_id', None) == topic_id:
+                        print(f"  📩 收到话题回复: {msg.text}")
+                        break
+                elif msg.sender_id != me.id:
                     print(f"  📩 收到回复: {msg.text}")
                     break
 
