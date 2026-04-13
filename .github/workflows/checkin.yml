@@ -4,9 +4,9 @@ on:
   schedule:
     # 可添加多个 cron 时间，覆盖所有目标的定时需求
     # 脚本会根据 TARGETS_CONFIG 中每个目标的 schedule 字段自动匹配
-    - cron: '0 1 * * *'   # UTC 01:00 (北京时间 09:00)
+#    - cron: '0 1 * * *'   # UTC 01:00 (北京时间 09:00)
     - cron: '0 6 * * *'   # UTC 06:00 (北京时间 14:00)
-    - cron: '0 14 * * *'  # UTC 14:00 (北京时间 22:00)
+#    - cron: '0 14 * * *'  # UTC 14:00 (北京时间 22:00)
   workflow_dispatch:
     inputs:
       send_all:
