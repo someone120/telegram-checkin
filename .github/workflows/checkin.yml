@@ -55,4 +55,4 @@ jobs:
               ARGS="--target ${{ inputs.target }}"
             fi
           fi
-          python checkin.py $ARGS
+          python checkin.py --all $ARGS
