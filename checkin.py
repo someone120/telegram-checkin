@@ -28,6 +28,13 @@ def save_status(status):
     with open(STATUS_FILE, "w", encoding="utf-8") as f:
         json.dump(status, f, ensure_ascii=False, indent=2)
 
+def get_task_key(target_config):
+    """根据任务配置生成唯一标识，防止同目标群组下多条命令状态冲突"""
+    key = f"{target_config['target']}|{target_config['message']}"
+    if target_config.get("topic_id"):
+        key += f"|{target_config['topic_id']}"
+    return key
+
 # 从环境变量读取配置
 API_ID = int(os.environ.get("API_ID", 0))
 API_HASH = os.environ.get("API_HASH", "")
@@ -91,9 +98,14 @@ def filter_by_interval(targets, status, send_all=False):
     
     for t in targets:
         interval_days = t.get("interval_days", 1)
-        target_str = t["target"]
+        task_key = get_task_key(t)
         
-        last_date_str = status.get(target_str)
+        last_date_str = status.get(task_key)
+        if not last_date_str:
+            # 向后兼容：如果找不到新格式的 key，尝试查找旧格式的纯 target key
+            old_key = t["target"]
+            last_date_str = status.get(old_key)
+            
         if not last_date_str:
             matched.append(t)
             continue
@@ -218,6 +230,7 @@ async def main():
         for i, target_config in enumerate(targets, 1):
             interval_days = target_config.get("interval_days", 1)
             target_str = target_config["target"]
+            task_key = get_task_key(target_config)
             print(
                 f"\n[{i}/{len(targets)}] 目标: "
                 f"{target_str} (间隔: {interval_days}天)"
@@ -225,7 +238,7 @@ async def main():
 
             if await send_checkin(client, me, target_config):
                 success_count += 1
-                status[target_str] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                status[task_key] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             else:
                 fail_count += 1
         
