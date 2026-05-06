@@ -2,15 +2,12 @@ name: Telegram 自动签到
 
 on:
   schedule:
-    # 可添加多个 cron 时间，覆盖所有目标的定时需求
-    # 脚本会根据 TARGETS_CONFIG 中每个目标的 schedule 字段自动匹配
+    # 每天触发一次检查是否到达指定的间隔天数
     - cron: '0 1 * * *'   # UTC 01:00 (北京时间 09:00)
-    - cron: '0 6 * * *'   # UTC 06:00 (北京时间 14:00)
-    - cron: '0 14 * * *'  # UTC 14:00 (北京时间 22:00)
   workflow_dispatch:
     inputs:
       send_all:
-        description: '向所有目标发送（忽略定时设置）'
+        description: '向所有目标发送（忽略间隔天数）'
         required: false
         type: boolean
         default: true
@@ -23,6 +20,8 @@ on:
 jobs:
   checkin:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -56,3 +55,12 @@ jobs:
             fi
           fi
           python checkin.py $ARGS
+
+      - name: Commit checkin status
+        run: |
+          if [ -f checkin_status.json ]; then
+            git config --local user.email "github-actions[bot]@users.noreply.github.com"
+            git config --local user.name "github-actions[bot]"
+            git add checkin_status.json
+            git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update checkin status" && git push)
+          fi

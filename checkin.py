@@ -1,7 +1,7 @@
 """
 Telegram UserBot 自动签到脚本
 通过 Telethon 以个人账号身份向指定目标发送签到消息
-支持多目标分别定时发送
+支持多目标分别按间隔天数发送
 """
 
 import os
@@ -12,6 +12,21 @@ import argparse
 from datetime import datetime, timezone
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+
+STATUS_FILE = "checkin_status.json"
+
+def load_status():
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_status(status):
+    with open(STATUS_FILE, "w", encoding="utf-8") as f:
+        json.dump(status, f, ensure_ascii=False, indent=2)
 
 # 从环境变量读取配置
 API_ID = int(os.environ.get("API_ID", 0))
@@ -27,10 +42,10 @@ def parse_targets():
 
     新格式示例：
     [
-      {"target": "@bot1", "message": "/checkin", "schedule": "01:00"},
-      {"target": "-1001234567890", "message": "/sign", "schedule": "14:00"}
+      {"target": "@bot1", "message": "/checkin", "interval_days": 1},
+      {"target": "-1001234567890", "message": "/sign", "interval_days": 3}
     ]
-    schedule 为 UTC 时间，格式 HH:MM
+    interval_days 为间隔天数，1表示每天，3表示每3天
     """
     targets_json = os.environ.get("TARGETS_CONFIG", "")
 
@@ -49,7 +64,7 @@ def parse_targets():
                 parsed.append({
                     "target": t["target"],
                     "message": t.get("message", "/checkin"),
-                    "schedule": t.get("schedule", ""),
+                    "interval_days": t.get("interval_days", 1),
                     "topic_id": t.get("topic_id", None),
                 })
             return parsed
@@ -61,44 +76,35 @@ def parse_targets():
     target = os.environ.get("TARGET", "")
     message = os.environ.get("MESSAGE", "/checkin")
     if target:
-        return [{"target": target, "message": message, "schedule": ""}]
+        return [{"target": target, "message": message, "interval_days": 1}]
 
     return []
 
 
-def filter_by_schedule(targets, send_all=False):
-    """根据当前 UTC 时间过滤应该发送的目标
-    使用 ±5 分钟容差来应对 GitHub Actions cron 延迟
-    """
+def filter_by_interval(targets, status, send_all=False):
+    """根据状态文件和间隔天数过滤目标"""
     if send_all:
         return targets
 
-    now = datetime.now(timezone.utc)
-    current_minutes = now.hour * 60 + now.minute
-
+    today = datetime.now(timezone.utc).date()
     matched = []
+    
     for t in targets:
-        schedule = t.get("schedule", "").strip()
-        if not schedule:
-            # 没有设置 schedule 的目标始终发送
+        interval_days = t.get("interval_days", 1)
+        target_str = t["target"]
+        
+        last_date_str = status.get(target_str)
+        if not last_date_str:
             matched.append(t)
             continue
-
+            
         try:
-            parts = schedule.split(":")
-            sched_hour = int(parts[0])
-            sched_minute = int(parts[1]) if len(parts) > 1 else 0
-            sched_minutes = sched_hour * 60 + sched_minute
-
-            # ±5 分钟容差，处理 GitHub Actions 延迟
-            diff = abs(current_minutes - sched_minutes)
-            # 处理跨午夜的情况 (如 23:58 vs 00:02)
-            diff = min(diff, 1440 - diff)
-
-            if diff <= 5:
+            last_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
+            diff_days = (today - last_date).days
+            if diff_days >= interval_days:
                 matched.append(t)
-        except (ValueError, IndexError):
-            print(f"⚠️  目标 {t['target']} 的 schedule 格式无效: {schedule}，跳过")
+        except ValueError:
+            matched.append(t)
 
     return matched
 
@@ -173,6 +179,9 @@ async def main():
         sys.exit(1)
 
     print(f"📋 已加载 {len(all_targets)} 个签到目标")
+    
+    # 加载状态文件
+    status = load_status()
 
     # 过滤目标
     if args.target:
@@ -182,12 +191,12 @@ async def main():
             print(f"❌ 未找到目标: {args.target}")
             sys.exit(1)
     else:
-        # 按定时规则过滤
-        targets = filter_by_schedule(all_targets, send_all=args.all)
+        # 按间隔天数过滤
+        targets = filter_by_interval(all_targets, status, send_all=args.all)
 
     if not targets:
         now = datetime.now(timezone.utc)
-        print(f"⏭️  当前 UTC 时间 {now.strftime('%H:%M')}，没有匹配的定时目标，跳过")
+        print(f"⏭️  当前 UTC 时间 {now.strftime('%H:%M')}，没有符合间隔天数要求的目标，跳过")
         return
 
     print(f"🎯 本次将向 {len(targets)} 个目标发送签到消息")
@@ -207,20 +216,21 @@ async def main():
         fail_count = 0
 
         for i, target_config in enumerate(targets, 1):
-            schedule_info = (
-                f" (定时: UTC {target_config['schedule']})"
-                if target_config.get("schedule")
-                else ""
-            )
+            interval_days = target_config.get("interval_days", 1)
+            target_str = target_config["target"]
             print(
                 f"\n[{i}/{len(targets)}] 目标: "
-                f"{target_config['target']}{schedule_info}"
+                f"{target_str} (间隔: {interval_days}天)"
             )
 
             if await send_checkin(client, me, target_config):
                 success_count += 1
+                status[target_str] = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             else:
                 fail_count += 1
+        
+        # 保存新的状态
+        save_status(status)
 
         print(f"\n🎉 签到完成! 成功: {success_count}, 失败: {fail_count}")
 
