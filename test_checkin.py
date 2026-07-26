@@ -249,3 +249,101 @@ class TestFilterByInterval:
         result = checkin.filter_by_interval(targets, status, send_all=False)
         assert len(result) == 1
 
+
+# ============================================================
+# solve_math_expression 测试
+# ============================================================
+
+class TestSolveMathExpression:
+    def test_addition(self):
+        text = "📍 签到验证\n请计算：89 + 32 = ?\n点击正确答案完成签到"
+        expr, res = checkin.solve_math_expression(text)
+        assert res == 121
+        assert "89 + 32" in expr
+
+    def test_fullwidth_symbols(self):
+        text = "请计算： 89 ＋ 32 ＝ ?"
+        expr, res = checkin.solve_math_expression(text)
+        assert res == 121
+
+    def test_subtraction(self):
+        text = "验证码：15 - 7 = ?"
+        expr, res = checkin.solve_math_expression(text)
+        assert res == 8
+
+    def test_multiplication(self):
+        text = "请回答：12 × 4"
+        expr, res = checkin.solve_math_expression(text)
+        assert res == 48
+
+    def test_division(self):
+        text = "请计算：100 ÷ 5 = ?"
+        expr, res = checkin.solve_math_expression(text)
+        assert res == 20
+
+    def test_no_math_expression(self):
+        text = "欢迎使用签到机器人，签到成功！"
+        result = checkin.solve_math_expression(text)
+        assert result is None
+
+
+# ============================================================
+# process_verification 测试
+# ============================================================
+
+class TestProcessVerification:
+    @pytest.mark.asyncio
+    async def test_button_click_match(self):
+        """验证匹配到数学公式时自动点击对应数字按钮"""
+        msg = AsyncMock()
+        msg.text = "📍 签到验证\n请计算：89 + 32 = ?\n点击正确答案完成签到"
+
+        # Mock inline buttons
+        btn1 = MagicMock()
+        btn1.text = "123"
+        btn1.click = AsyncMock()
+
+        btn2 = MagicMock()
+        btn2.text = "122"
+        btn2.click = AsyncMock()
+
+        btn3 = MagicMock()
+        btn3.text = "131"
+        btn3.click = AsyncMock()
+
+        btn4 = MagicMock()
+        btn4.text = "121"
+        btn4.click = AsyncMock()
+
+        msg.buttons = [[btn1, btn2], [btn3, btn4]]
+
+        res = await checkin.process_verification(msg)
+
+        assert res is True
+        btn4.click.assert_called_once()
+        btn1.click.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_reply_fallback_when_no_buttons(self):
+        """验证没有按钮时自动通过文本消息回复计算结果"""
+        msg = AsyncMock()
+        msg.text = "请计算：15 - 7 = ?"
+        msg.buttons = None
+        msg.reply = AsyncMock()
+
+        res = await checkin.process_verification(msg)
+
+        assert res is True
+        msg.reply.assert_called_once_with("8")
+
+    @pytest.mark.asyncio
+    async def test_no_math_returns_false(self):
+        """验证无数学公式时返回 False 且不进行任何操作"""
+        msg = AsyncMock()
+        msg.text = "签到成功"
+        msg.buttons = None
+
+        res = await checkin.process_verification(msg)
+        assert res is False
+
+

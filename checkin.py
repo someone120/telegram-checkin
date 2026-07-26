@@ -7,6 +7,7 @@ Telegram UserBot 自动签到脚本
 import os
 import sys
 import json
+import re
 import asyncio
 import argparse
 from datetime import datetime, timezone
@@ -173,6 +174,110 @@ def parse_target_id(target_str):
         return target_str
 
 
+def solve_math_expression(text):
+    """从文本中提取并计算简单的数学算式。
+    支持加减乘除 (+, -, *, / 以及全角字符 ＋, －, ×, ✖, ✕, ÷)。
+    返回 (算式字符串, 计算结果)，未匹配或计算出错时返回 None。
+    """
+    if not text:
+        return None
+
+    # 替换常见全角符号与特殊运算符
+    normalized = text.replace("＋", "+").replace("－", "-") \
+                     .replace("×", "*").replace("✖", "*").replace("✕", "*") \
+                     .replace("÷", "/").replace("＝", "=")
+
+    # 匹配形如 89 + 32 或 89 + 32 = ? 的算式
+    # 支持 1~2 个运算符的简单算式
+    pattern = r"(\d+)\s*([\+\-\*\/])\s*(\d+)(?:\s*([\+\-\*\/])\s*(\d+))?"
+    match = re.search(pattern, normalized)
+    if not match:
+        return None
+
+    try:
+        n1 = int(match.group(1))
+        op1 = match.group(2)
+        n2 = int(match.group(3))
+
+        if op1 == '+':
+            res = n1 + n2
+        elif op1 == '-':
+            res = n1 - n2
+        elif op1 == '*':
+            res = n1 * n2
+        elif op1 == '/':
+            if n2 == 0:
+                return None
+            res = n1 // n2 if n1 % n2 == 0 else n1 / n2
+
+        if match.group(4) and match.group(5):
+            op2 = match.group(4)
+            n3 = int(match.group(5))
+            if op2 == '+':
+                res = res + n3
+            elif op2 == '-':
+                res = res - n3
+            elif op2 == '*':
+                res = res * n3
+            elif op2 == '/':
+                if n3 == 0:
+                    return None
+                res = res // n3 if isinstance(res, int) and res % n3 == 0 else res / n3
+
+        if isinstance(res, float) and res.is_integer():
+            res = int(res)
+
+        expr_str = match.group(0)
+        return expr_str, res
+    except Exception:
+        return None
+
+
+async def process_verification(msg):
+    """处理捕获的回复消息，识别数学验证码并解答"""
+    if not msg or not getattr(msg, "text", None):
+        return False
+
+    math_res = solve_math_expression(msg.text)
+    if not math_res:
+        return False
+
+    expr_str, ans = math_res
+    ans_str = str(ans)
+    print(f"  🤖 识别到验证数学算式: {expr_str} = {ans}")
+
+    # 1. 如果消息带有按钮，优先点击匹配的按钮
+    buttons = getattr(msg, "buttons", None)
+    if buttons:
+        # 第一轮：精准匹配按钮文本（忽略首尾空格）
+        for row in buttons:
+            for button in row:
+                b_text = button.text.strip() if getattr(button, "text", None) else ""
+                if b_text == ans_str:
+                    await button.click()
+                    print(f"  ✅ 已自动点击验证选项按钮: [{b_text}]")
+                    return True
+
+        # 第二轮：正则匹配独立的数字单词
+        pattern = r"\b" + re.escape(ans_str) + r"\b"
+        for row in buttons:
+            for button in row:
+                b_text = button.text.strip() if getattr(button, "text", None) else ""
+                if b_text and re.search(pattern, b_text):
+                    await button.click()
+                    print(f"  ✅ 已自动点击验证选项按钮: [{b_text}]")
+                    return True
+
+    # 2. 如果无匹配按钮或消息无按钮，回复计算结果文本
+    try:
+        await msg.reply(ans_str)
+        print(f"  ✅ 已自动发送验证回复消息: {ans_str}")
+        return True
+    except Exception as e:
+        print(f"  ❌ 验证回复发送失败: {e}")
+        return False
+
+
 async def send_checkin(client, me, target_config):
     """向单个目标发送签到消息并捕获回复"""
     target_str = target_config["target"]
@@ -199,9 +304,11 @@ async def send_checkin(client, me, target_config):
                 if topic_id and hasattr(msg, 'reply_to') and msg.reply_to:
                     if getattr(msg.reply_to, 'reply_to_msg_id', None) == topic_id:
                         print(f"  📩 收到话题回复: {msg.text}")
+                        await process_verification(msg)
                         break
                 elif msg.sender_id != me.id:
                     print(f"  📩 收到回复: {msg.text}")
+                    await process_verification(msg)
                     break
 
         return True
