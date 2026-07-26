@@ -3,6 +3,12 @@ import sys
 import json
 from cryptography.fernet import Fernet
 
+if getattr(sys.stdout, 'reconfigure', None):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 ENCRYPTED_FILE = "targets.enc"
 KEY_FILE = "targets.key"
 

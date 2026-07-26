@@ -15,6 +15,12 @@ from telethon import TelegramClient
 from telethon.sessions import StringSession
 from cryptography.fernet import Fernet
 
+if getattr(sys.stdout, 'reconfigure', None):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 STATUS_FILE = "checkin_status.json"
 
 def load_status():
