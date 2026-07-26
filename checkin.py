@@ -92,6 +92,7 @@ def parse_targets():
                     "message": t.get("message", "/checkin"),
                     "interval_days": t.get("interval_days", 1),
                     "topic_id": t.get("topic_id", None),
+                    "verify_target": t.get("verify_target", None),
                 })
             return parsed
         except Exception as e:
@@ -117,6 +118,7 @@ def parse_targets():
                     "message": t.get("message", "/checkin"),
                     "interval_days": t.get("interval_days", 1),
                     "topic_id": t.get("topic_id", None),
+                    "verify_target": t.get("verify_target", None),
                 })
             return parsed
         except json.JSONDecodeError as e:
@@ -283,6 +285,7 @@ async def send_checkin(client, me, target_config):
     target_str = target_config["target"]
     message = target_config["message"]
     topic_id = target_config.get("topic_id")
+    verify_target_cfg = target_config.get("verify_target")
     target = parse_target_id(target_str)
 
     try:
@@ -298,18 +301,47 @@ async def send_checkin(client, me, target_config):
             print(f"  ⏳ 等待 {WAIT_RESPONSE} 秒以捕获回复...")
             await asyncio.sleep(WAIT_RESPONSE)
 
-            messages = await client.get_messages(target, limit=3)
-            for msg in messages:
-                # 如果指定了话题 ID，只获取该话题的回复
-                if topic_id and hasattr(msg, 'reply_to') and msg.reply_to:
-                    if getattr(msg.reply_to, 'reply_to_msg_id', None) == topic_id:
-                        print(f"  📩 收到话题回复: {msg.text}")
-                        await process_verification(msg)
+            targets_to_check = []
+            if verify_target_cfg:
+                targets_to_check.append(parse_target_id(verify_target_cfg))
+            else:
+                targets_to_check.append(target)
+
+            verified = False
+            for check_t in targets_to_check:
+                try:
+                    messages = await client.get_messages(check_t, limit=5)
+                    for msg in messages:
+                        # 如果指定了话题 ID 且在同目标群组中，检查话题消息
+                        if topic_id and check_t == target and hasattr(msg, 'reply_to') and msg.reply_to:
+                            if getattr(msg.reply_to, 'reply_to_msg_id', None) != topic_id:
+                                continue
+                        if msg.sender_id != me.id:
+                            print(f"  📩 收到 ({check_t}) 回复: {msg.text}")
+                            if await process_verification(msg):
+                                verified = True
+                                break
+                    if verified:
                         break
-                elif msg.sender_id != me.id:
-                    print(f"  📩 收到回复: {msg.text}")
-                    await process_verification(msg)
-                    break
+                except Exception as e:
+                    print(f"  ⚠️ 检索 {check_t} 消息失败: {e}")
+
+            # 如果未在原目标或指定验证目标中发现验证码且未显式指定 verify_target，扫描私聊 Bot
+            if not verified and not verify_target_cfg:
+                try:
+                    async for dialog in client.iter_dialogs(limit=5):
+                        if dialog.is_user and getattr(dialog.entity, 'bot', False):
+                            messages = await client.get_messages(dialog.entity, limit=3)
+                            for msg in messages:
+                                if msg.sender_id != me.id:
+                                    if await process_verification(msg):
+                                        verified = True
+                                        print(f"  📩 在私聊机器人 (@{getattr(dialog.entity, 'username', 'bot')}) 中捕获并完成了验证")
+                                        break
+                        if verified:
+                            break
+                except Exception:
+                    pass
 
         return True
     except Exception as e:

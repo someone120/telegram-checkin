@@ -28,10 +28,11 @@ def print_targets(targets):
     print("\n================ 当前配置的签到目标 ================")
     for i, t in enumerate(targets, 1):
         topic_str = f"，话题 ID: {t['topic_id']}" if t.get("topic_id") is not None else ""
+        verify_str = f"，验证目标: {t['verify_target']}" if t.get("verify_target") else ""
         print(
             f"[{i}] 目标: {t['target']} | "
             f"消息: {t['message']} | "
-            f"间隔: {t['interval_days']}天{topic_str}"
+            f"间隔: {t['interval_days']}天{topic_str}{verify_str}"
         )
     print("====================================================")
 
@@ -60,6 +61,9 @@ def add_target(targets):
     # 4. Topic ID
     topic_id_str = get_input("🧵 话题 ID (topic_id, 若没有则直接回车)", "")
 
+    # 5. Verify Target
+    verify_target_str = get_input("🤖 独立验证目标 (verify_target, 如验证机器人@xxx，若无则直接回车)", "")
+
     target_dict = {
         "target": target,
         "message": message,
@@ -71,6 +75,9 @@ def add_target(targets):
             target_dict["topic_id"] = int(topic_id_str)
         except ValueError:
             print("⚠️ 话题 ID 必须是数字，已忽略。")
+
+    if verify_target_str.strip():
+        target_dict["verify_target"] = verify_target_str.strip()
 
     targets.append(target_dict)
     print("✅ 目标添加成功！")
@@ -118,6 +125,13 @@ def edit_target(targets):
         orig_topic
     )
 
+    # Verify Target
+    orig_verify = str(t.get("verify_target", ""))
+    verify_target_str = get_input(
+        f"🤖 独立验证目标 (原值: {orig_verify if orig_verify else '无'}, 输入 none 清除)",
+        orig_verify
+    )
+
     # 组装修改
     t["target"] = target
     t["message"] = message
@@ -130,6 +144,11 @@ def edit_target(targets):
             t["topic_id"] = int(topic_id_str)
         except ValueError:
             print("⚠️ 话题 ID 必须是数字，保留原话题 ID")
+
+    if verify_target_str.lower() == "none" or not verify_target_str.strip():
+        t.pop("verify_target", None)
+    else:
+        t["verify_target"] = verify_target_str.strip()
 
     print(f"✅ 第 {idx + 1} 个目标修改成功！")
 

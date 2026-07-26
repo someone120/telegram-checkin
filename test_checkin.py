@@ -194,6 +194,30 @@ class TestSendCheckin:
 
         assert result is False
 
+    @pytest.mark.asyncio
+    async def test_send_with_verify_target(self, mock_client, mock_me):
+        """验证指定 verify_target 时从独立目标读取验证消息"""
+        config = {
+            "target": "@group_chat",
+            "message": "/checkin",
+            "verify_target": "@verify_bot",
+        }
+
+        verify_msg = AsyncMock()
+        verify_msg.text = "请计算：10 + 20 = ?"
+        verify_msg.sender_id = 999
+        verify_msg.buttons = None
+        verify_msg.reply = AsyncMock()
+
+        mock_client.get_messages = AsyncMock(side_effect=lambda t, limit: [verify_msg] if t == "@verify_bot" else [])
+
+        with patch.object(checkin, 'WAIT_RESPONSE', 1):
+            result = await checkin.send_checkin(mock_client, mock_me, config)
+
+        assert result is True
+        mock_client.get_messages.assert_called_with("@verify_bot", limit=5)
+        verify_msg.reply.assert_called_once_with("30")
+
 
 # ============================================================
 # parse_target_id 测试
